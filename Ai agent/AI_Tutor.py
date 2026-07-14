@@ -1,4 +1,5 @@
 import os
+import json 
 from dotenv import load_dotenv
 from groq import Groq
 load_dotenv()
@@ -6,9 +7,30 @@ load_dotenv()
 client= Groq(
     api_key=os.getenv("GROQ_API_KEY")
 )
+def calculator(expression):
+    return str(eval(expression))
+tools =[
+    {
+        "type": "function",
+        "function": {
+            "name": "calculator",
+            "description": "Calculate mathematical expressions.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "expression": {
+                        "type": "string",
+                        "description": "A mathematical expression like 67*23"
+                    }
+                },
+                "required": ["expression"]
+            }
+        }
+    }
+]
 # The system role tells the LLM that these are permanent instructions
 # to follow throughout the conversation.
-messages=(
+messages=[
     {
     "role":"system",
     "content":"""
@@ -51,29 +73,44 @@ Follow these rules throughout the conversation:
 Your goal is not only to answer questions but to help students become confident, independent learners.
 """
     }
-)
-def calculator(Expression):
-    return eval(Expression)
+]
 while True:
- question=input("you: ")
- if question.lower() in ["exit", "quit"]:
-  print("Bot: Good luck with your studies, Fiza! Keep learning. 👋")
-  break
- messages.append(
-    {
-    "role":"user",
-    "content":question
-    }
-  )
- response= client.chat.completions.create(
-  model="llama-3.3-70b-versatile",
-   messages=messages
-)
- bot_reply= response.choices[0].message.content
- messages.append(
-  {
-    "role":"assistant",
-    "content":bot_reply
-  }
- )
- print("Bot: ",bot_reply)
+    question = input("you: ")
+    if question.lower() in ["exit", "quit"]:
+        print("Bot: Good luck with your studies, Fiza! Keep learning. 👋")
+        break
+
+    messages.append({"role": "user", "content": question})
+
+    response = client.chat.completions.create(
+        model="llama-3.3-70b-versatile",
+        messages=messages,
+        tools=tools,
+        tool_choice="auto"
+    )
+    message = response.choices[0].message
+
+    if message.tool_calls:
+        tool_call = message.tool_calls[0]
+        tool_name = tool_call.function.name
+        arguments = json.loads(tool_call.function.arguments)
+
+        if tool_name == "calculator":
+            result = calculator(arguments["expression"])
+            messages.append(message)
+            messages.append({
+                "role": "tool",
+                "tool_call_id": tool_call.id,
+                "content": result
+            })
+
+        response = client.chat.completions.create(
+            model="llama-3.3-70b-versatile",
+            messages=messages
+        )
+        bot_reply = response.choices[0].message.content
+    else:
+        bot_reply = message.content
+
+    messages.append({"role": "assistant", "content": bot_reply})
+    print("Bot:", bot_reply)
